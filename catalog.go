@@ -3,11 +3,9 @@ package asset
 import (
 	"encoding/json"
 	"encoding/xml"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -168,13 +166,13 @@ func (i *ImageSet) needsUpdate(svg string) (bool, error) {
 	return false, nil
 }
 
-func (c *container) AddSVG(path string) error {
+func (c *container) AddSVG(path string, converter SVGConverter) error {
 	if !strings.HasSuffix(path, ".svg") {
 		return fmt.Errorf("%s: not an svg file", path)
 	}
 
 	name := filepath.Base(path)
-	target := name[0:len(name)-4]
+	target := name[0 : len(name)-4]
 
 	image := c.images[target]
 	if image == nil {
@@ -216,25 +214,25 @@ func (c *container) AddSVG(path string) error {
 			Scale:     fmt.Sprintf("%dx", i),
 			FileName:  fmt.Sprintf("%s-%dx.png", target, i),
 			Idiom:     "universal",
-			generator: image.pngGenerator(i, s.Height, s.Width, path),
+			generator: image.pngGenerator(i, s.Height, s.Width, path, converter),
 		}
 	}
 	return nil
 }
 
-func (i *ImageSet) pngGenerator(scale, height, width int, svg string) func(chan error) {
+func (i *ImageSet) pngGenerator(scale, height, width int, svg string, c SVGConverter) func(chan error) {
 	return func(errs chan error) {
-		var final error
-		cmd := exec.Command("inkscape",
-			"--without-gui",
-			"--export-height", fmt.Sprintf("%d", height*scale),
-			"--export-width", fmt.Sprintf("%d", width*scale),
-			"--export-png", filepath.Join(i.dir, i.Images[scale-1].FileName),
-			svg)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			final = fmt.Errorf("%v: %s", err, string(out))
-		}
-		errs <- final
+		//var final error
+		//cmd := exec.Command("inkscape",
+		//	"--without-gui",
+		//	"--export-height", fmt.Sprintf("%d", height*scale),
+		//	"--export-width", fmt.Sprintf("%d", width*scale),
+		//	"--export-png", filepath.Join(i.dir, i.Images[scale-1].FileName),
+		//	svg)
+		//if out, err := cmd.CombinedOutput(); err != nil {
+		//	final = fmt.Errorf("%v: %s", err, string(out))
+		//}
+		errs <- c.Convert(scale, height, width, svg, filepath.Join(i.dir, i.Images[scale-1].FileName))
 	}
 }
 
@@ -297,12 +295,7 @@ func NewCatalog(dir string) (*Catalog, error) {
 	return c, nil
 }
 
-var ErrNoInkScape = errors.New("inkscape not installed. inkscape (https://www.inkscape.org/) is needed to convert SVG files.")
-
-func (c *Catalog) AddSVGs(dir string) error {
-	if _, err := exec.LookPath("inkscape"); err != nil {
-		return ErrNoInkScape
-	}
+func (c *Catalog) AddSVGs(dir string, converter SVGConverter) error {
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if info.IsDir() || filepath.Ext(info.Name()) != ".svg" {
 			return nil
@@ -311,11 +304,11 @@ func (c *Catalog) AddSVGs(dir string) error {
 		if err != nil {
 			return err
 		}
-		return c.addSVG(dir, f)
+		return c.addSVG(dir, f, converter)
 	})
 }
 
-func (c *Catalog) addSVG(dir, file string) error {
+func (c *Catalog) addSVG(dir, file string, converter SVGConverter) error {
 	path, _ := filepath.Dir(file), filepath.Base(file)
 	var holder Container = c
 	for path != "." && path != "" {
@@ -329,11 +322,11 @@ func (c *Catalog) addSVG(dir, file string) error {
 			return err
 		}
 	}
-	return holder.AddSVG(filepath.Join(dir, file))
+	return holder.AddSVG(filepath.Join(dir, file), converter)
 }
 
 type Container interface {
 	AddGroup(name string) (Container, error)
-	AddSVG(file string) error
+	AddSVG(file string, c SVGConverter) error
 	Write() error
 }
