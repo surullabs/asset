@@ -17,21 +17,21 @@ import (
 )
 
 type SVGConverter interface {
-	Convert(scale, height, width int, svgFile, pngFile string) error
+	Convert(scale int, height, width float32, svgFile, pngFile string) error
 }
 
 var ErrNoInkScape = errors.New("inkscape not installed. inkscape (https://www.inkscape.org/) is needed to convert SVG files.")
 
 type InkScapeConverter struct{}
 
-func (InkScapeConverter) Convert(scale, height, width int, svgFile, pngFile string) error {
+func (InkScapeConverter) Convert(scale int, height, width float32, svgFile, pngFile string) error {
 	if _, err := exec.LookPath("inkscape"); err != nil {
 		return ErrNoInkScape
 	}
 	cmd := exec.Command("inkscape",
 		"--without-gui",
-		"--export-height", fmt.Sprintf("%d", height*scale),
-		"--export-width", fmt.Sprintf("%d", width*scale),
+		"--export-height", fmt.Sprintf("%f", int(float32(scale) *height)),
+		"--export-width", fmt.Sprintf("%f", int(float32(scale) * width)),
 		"--export-png", pngFile,
 		svgFile)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -96,7 +96,7 @@ func (p *PhantomJSConverter) Stop() error {
 	return p.p.Exit()
 }
 
-func (p *PhantomJSConverter) Convert(scale, height, width int, svgFile, pngFile string) error {
+func (p *PhantomJSConverter) Convert(scale int, height, width float32, svgFile, pngFile string) error {
 	var result interface{}
 	abs, err := filepath.Abs(svgFile)
 	if err != nil {
@@ -104,7 +104,7 @@ func (p *PhantomJSConverter) Convert(scale, height, width int, svgFile, pngFile 
 	}
 	f := filepath.Join(p.dir, "out.html")
 	var buf bytes.Buffer
-	h, w := scale*height, scale*width
+	h, w := int(float32(scale)*height), int(float32(scale)*width)
 	d := map[string]interface{}{"File": abs, "Height": h, "Width": w}
 	if err = svgHTMLTemplate.Execute(&buf, d); err != nil {
 		return errors.Wrapf(err, "%s: failed to generate html")

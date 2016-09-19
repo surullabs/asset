@@ -46,8 +46,8 @@ func TestConvert(t *testing.T) {
 
 type fakeConvertCall struct {
 	scale  int
-	height int
-	width  int
+	height float32
+	width  float32
 	svg    string
 	png    string
 	src    string
@@ -58,7 +58,7 @@ type converter struct {
 	called int
 }
 
-func (c *converter) Convert(scale, height, width int, svg, png string) error {
+func (c *converter) Convert(scale int, height, width float32, svg, png string) error {
 	c.called++
 	idx := -1
 	actual := fakeConvertCall{scale, height, width, svg, png, ""}
@@ -86,7 +86,7 @@ func fakeCall(tmpDir string, scale, height, width int, path string) fakeConvertC
 	svgFile := filepath.Join("testdata/data", path+".svg")
 	pngFile := filepath.Join(tmpDir, "TestCatalog.xcassets", file)
 	golden := filepath.Join("testdata/TestCatalog.xcassets", file)
-	return fakeConvertCall{scale, height, width, svgFile, pngFile, golden}
+	return fakeConvertCall{scale, float32(height), float32(width), svgFile, pngFile, golden}
 }
 
 func fakeCallsFromTestData(tmpDir string) []fakeConvertCall {
