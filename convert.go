@@ -9,9 +9,11 @@ import (
 	"io/ioutil"
 	"path/filepath"
 
-	"github.com/urturn/go-phantomjs"
-	"github.com/pkg/errors"
 	"os"
+
+	"github.com/pkg/errors"
+	"github.com/urturn/go-phantomjs"
+	"bytes"
 )
 
 type SVGConverter interface {
@@ -39,7 +41,8 @@ func (InkScapeConverter) Convert(scale, height, width int, svgFile, pngFile stri
 }
 
 type PhantomJSConverter struct {
-	p *phantomjs.Phantom
+	p   *phantomjs.Phantom
+	dir string
 }
 
 var svgHTMLTemplate = template.Must(template.New("svg").Parse(`<!DOCTYPE html>
@@ -71,6 +74,10 @@ var renderSVG = function(source, height, width, done) {
 `
 
 func StartPhantomJSConverter() (*PhantomJSConverter, error) {
+	tmpDir, err := ioutil.TempDir("", "phantomjs")
+	if err != nil {
+		return nil, err
+	}
 	p, err := phantomjs.Start()
 	if err != nil {
 		return nil, err
@@ -81,10 +88,11 @@ func StartPhantomJSConverter() (*PhantomJSConverter, error) {
 		}
 		return nil, err
 	}
-	return &PhantomJSConverter{p}, nil
+	return &PhantomJSConverter{p, tmpDir}, nil
 }
 
 func (p *PhantomJSConverter) Stop() error {
+	defer os.RemoveAll(p.dir)
 	return p.p.Exit()
 }
 
@@ -94,8 +102,17 @@ func (p *PhantomJSConverter) Convert(scale, height, width int, svgFile, pngFile 
 	if err != nil {
 		return errors.Wrap(err, "")
 	}
+	f := filepath.Join(p.dir, "out.html")
+	var buf bytes.Buffer
 	h, w := scale*height, scale*width
-	call := fmt.Sprintf("function (done) {renderSVG(%q, %d, %d, done);}", "file://"+abs, h, w)
+	d := map[string]interface{}{"File": abs, "Height": h, "Width": w}
+	if err = svgHTMLTemplate.Execute(&buf, d); err != nil {
+		return errors.Wrapf(err, "%s: failed to generate html")
+	}
+	if err = ioutil.WriteFile(f, buf.Bytes(), 0600); err != nil {
+		return errors.Wrapf(err, "%s: failed to write html")
+	}
+	call := fmt.Sprintf("function (done) {renderSVG(%q, %d, %d, done);}", "file://"+f, h, w)
 	if err = p.p.Run(call, &result); err != nil {
 		return errors.Wrapf(err, "%s: phantomjs convert failed", svgFile)
 	}
