@@ -1,4 +1,4 @@
-package asset_test
+package asset
 
 import (
 	"path/filepath"
@@ -10,7 +10,6 @@ import (
 	"bytes"
 
 	"github.com/sridharv/fail"
-	"github.com/surullabs/indigo/tools/asset"
 )
 
 func TestCatalog(t *testing.T) {
@@ -26,12 +25,12 @@ func TestCatalog(t *testing.T) {
 
 	catalogDir := filepath.Join(tmpDir, "TestCatalog.xcassets")
 	fail.IfErr(os.MkdirAll(catalogDir, 0700))
-	catalog, err := asset.NewCatalog(catalogDir)
+	catalog, err := NewCatalog(catalogDir)
 	fail.IfErr(err)
 
 	// Test data sourced from https://github.com/encharm/Font-Awesome-SVG-PNG
 	err = catalog.AddSVGs("testdata/data")
-	if err == asset.ErrNoInkScape {
+	if err == ErrNoInkScape {
 		t.Skip(err.Error())
 	}
 	fail.IfErr(err)
