@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"strconv"
 )
 
 func readContents(dir string, v interface{}) (bool, error) {
@@ -133,8 +134,36 @@ func newContainer(name, dir string) *container {
 }
 
 type svg struct {
-	Height int `xml:"height,attr"`
-	Width  int `xml:"width,attr"`
+	Height string `xml:"height,attr"`
+	Width  string `xml:"width,attr"`
+}
+
+func (s svg) dim() (int, int, error) {
+	h, err := parseDim(s.Height)
+	if err != nil {
+		return 0, 0, err
+	}
+	w, err := parseDim(s.Width)
+	if err != nil {
+		return 0, 0, err
+	}
+	return h, w, nil
+}
+
+func parseDim(str string) (v int, err error) {
+	defer func() {
+		if v == 0 {
+			v = 150
+		}
+	}()
+	switch {
+	case str == "":
+		return 0, nil
+	case strings.HasSuffix(str, "px"):
+		str = strings.TrimSuffix(str, "px")
+	}
+	val, err := strconv.ParseInt(str, 10, 32)
+	return int(val), err
 }
 
 func (i *ImageSet) needsUpdate(svg string) (bool, error) {
@@ -194,11 +223,9 @@ func (c *container) AddSVG(path string, forceUpdate bool, converter SVGConverter
 	if err := xml.Unmarshal(bytes, &s); err != nil {
 		return fmt.Errorf("%s: failed to parse svg:%v", path, err)
 	}
-	if s.Height == 0 {
-		s.Height = 150
-	}
-	if s.Width == 0 {
-		s.Width = 150
+	h, w, err := s.dim()
+	if err != nil {
+		return fmt.Errorf("%s: failed to parse dim:%v", path, err)
 	}
 
 	image.Images = make([]Image, 3)
@@ -207,7 +234,7 @@ func (c *container) AddSVG(path string, forceUpdate bool, converter SVGConverter
 			Scale:     fmt.Sprintf("%dx", i),
 			FileName:  fmt.Sprintf("%s-%dx.png", target, i),
 			Idiom:     "universal",
-			generator: image.pngGenerator(i, s.Height, s.Width, path, converter),
+			generator: image.pngGenerator(i, h, w, path, converter),
 		}
 	}
 	return nil
