@@ -157,7 +157,7 @@ func (i *ImageSet) needsUpdate(svg string) (bool, error) {
 	return false, nil
 }
 
-func (c *container) AddSVG(path string, converter SVGConverter) error {
+func (c *container) AddSVG(path string, forceUpdate bool, converter SVGConverter) error {
 	if !strings.HasSuffix(path, ".svg") {
 		return fmt.Errorf("%s: not an svg file", path)
 	}
@@ -180,8 +180,10 @@ func (c *container) AddSVG(path string, converter SVGConverter) error {
 		c.images[target] = image
 	}
 
-	if update, err := image.needsUpdate(path); !update {
-		return err
+	if !forceUpdate {
+		if update, err := image.needsUpdate(path); !update {
+			return err
+		}
 	}
 
 	bytes, err := ioutil.ReadFile(path)
@@ -276,7 +278,7 @@ func NewCatalog(dir string) (*Catalog, error) {
 	return c, nil
 }
 
-func (c *Catalog) AddSVGs(dir string, converter SVGConverter) error {
+func (c *Catalog) AddSVGs(dir string, forceUpdate bool, converter SVGConverter) error {
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if info.IsDir() || filepath.Ext(info.Name()) != ".svg" {
 			return nil
@@ -285,11 +287,11 @@ func (c *Catalog) AddSVGs(dir string, converter SVGConverter) error {
 		if err != nil {
 			return err
 		}
-		return c.addSVG(dir, f, converter)
+		return c.addSVG(dir, f, forceUpdate, converter)
 	})
 }
 
-func (c *Catalog) addSVG(dir, file string, converter SVGConverter) error {
+func (c *Catalog) addSVG(dir, file string, forceUpdate bool, converter SVGConverter) error {
 	path, _ := filepath.Dir(file), filepath.Base(file)
 	var holder Container = c
 	for path != "." && path != "" {
@@ -303,11 +305,11 @@ func (c *Catalog) addSVG(dir, file string, converter SVGConverter) error {
 			return err
 		}
 	}
-	return holder.AddSVG(filepath.Join(dir, file), converter)
+	return holder.AddSVG(filepath.Join(dir, file), forceUpdate, converter)
 }
 
 type Container interface {
 	AddGroup(name string) (Container, error)
-	AddSVG(file string, c SVGConverter) error
+	AddSVG(file string, forceUpdate bool, c SVGConverter) error
 	Write() error
 }

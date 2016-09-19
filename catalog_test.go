@@ -10,10 +10,8 @@ import (
 	"os"
 
 	"fmt"
-	"sync"
 
 	"github.com/JamesClonk/vultr/Godeps/_workspace/src/github.com/stretchr/testify/assert"
-	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,13 +54,12 @@ type fakeConvertCall struct {
 }
 
 type converter struct {
-	m     sync.Mutex
-	calls []fakeConvertCall
+	calls  []fakeConvertCall
+	called int
 }
 
 func (c *converter) Convert(scale, height, width int, svg, png string) error {
-	c.m.Lock()
-	defer c.m.Unlock()
+	c.called++
 	idx := -1
 	actual := fakeConvertCall{scale, height, width, svg, png, ""}
 	for i, call := range c.calls {
@@ -116,12 +113,10 @@ func TestCatalog(t *testing.T) {
 	catalog, err := NewCatalog(catalogDir)
 	require.NoError(t, err)
 
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
 	mock := &converter{calls: fakeCallsFromTestData(tmpDir)}
-	require.NoError(t, catalog.AddSVGs("testdata/data", mock))
+	require.NoError(t, catalog.AddSVGs("testdata/data", false, mock))
 	require.NoError(t, catalog.Write())
+	require.Equal(t, len(mock.calls), mock.called)
 
 	golden := listAll(t, "testdata/TestCatalog.xcassets")
 	actual := listAll(t, catalogDir)
@@ -130,6 +125,18 @@ func TestCatalog(t *testing.T) {
 		require.Equal(t, g.name, actual[i].name, "expected ", g.name, ", got ", actual[i].name)
 		require.Equal(t, g.contents, actual[i].contents, "contents of ", g.name, " not equal")
 	}
+
+	mock = &converter{calls: nil}
+	require.NoError(t, catalog.AddSVGs("testdata/data", false, mock))
+	require.NoError(t, catalog.Write())
+	require.Equal(t, 0, mock.called)
+
+	// Now force an update
+	mock = &converter{calls: fakeCallsFromTestData(tmpDir)}
+	require.NoError(t, catalog.AddSVGs("testdata/data", true, mock))
+	require.NoError(t, catalog.Write())
+	require.Equal(t, len(mock.calls), mock.called)
+
 }
 
 type catalogFile struct {
