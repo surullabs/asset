@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/JamesClonk/vultr/Godeps/_workspace/src/github.com/stretchr/testify/assert"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/require"
 )
@@ -27,17 +28,21 @@ func TestConvert(t *testing.T) {
 	defer os.RemoveAll(tmpDir)
 
 	calls := fakeCallsFromTestData(tmpDir)
-	converter := InkScapeConverter{}
+	converter, err := StartPhantomJSConverter()
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, converter.Stop()) }()
 	for _, c := range calls {
 		t.Run(c.src, func(t *testing.T) {
-			png := filepath.Join(tmpDir, filepath.Base(c.png))
-			require.NoError(t, converter.Convert(c.scale, c.height, c.width, c.svg, png))
+			require.NoError(t,
+				converter.Convert(c.scale, c.height, c.width, c.svg, c.png),
+				"failed to convert %+v", c.svg)
 			golden, err := ioutil.ReadFile(c.src)
 			require.NoError(t, err)
-			actual, err := ioutil.ReadFile(png)
+			actual, err := ioutil.ReadFile(c.png)
 			require.NoError(t, err)
 			require.Equal(t, golden, actual)
 		})
+		break
 	}
 }
 

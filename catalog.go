@@ -90,22 +90,13 @@ func (i *ImageSet) Write() error {
 	if err := os.MkdirAll(i.dir, 0700); err != nil {
 		return err
 	}
-	errs, count := make(chan error, len(i.Images)), 0
 	for _, image := range i.Images {
 		if image.generator == nil {
 			continue
 		}
-		go image.generator(errs)
-		count++
-	}
-	var err error
-	for j := 0; j < count; j++ {
-		if e := <-errs; e != nil {
-			err = e
+		if err := image.generator(); err != nil {
+			return err
 		}
-	}
-	if err != nil {
-		return err
 	}
 	return writeContents(i.dir, i)
 }
@@ -122,7 +113,7 @@ type Image struct {
 	HeightClass        string                 `json:"height-class,omitempty"`
 	Unassigned         bool                   `json:"unassigned,omitempty"`
 	AlignmentInsets    map[string]interface{} `json:"alignment-insets,omitempty"`
-	generator          func(chan error)
+	generator          func() error
 }
 
 type container struct {
@@ -220,19 +211,9 @@ func (c *container) AddSVG(path string, converter SVGConverter) error {
 	return nil
 }
 
-func (i *ImageSet) pngGenerator(scale, height, width int, svg string, c SVGConverter) func(chan error) {
-	return func(errs chan error) {
-		//var final error
-		//cmd := exec.Command("inkscape",
-		//	"--without-gui",
-		//	"--export-height", fmt.Sprintf("%d", height*scale),
-		//	"--export-width", fmt.Sprintf("%d", width*scale),
-		//	"--export-png", filepath.Join(i.dir, i.Images[scale-1].FileName),
-		//	svg)
-		//if out, err := cmd.CombinedOutput(); err != nil {
-		//	final = fmt.Errorf("%v: %s", err, string(out))
-		//}
-		errs <- c.Convert(scale, height, width, svg, filepath.Join(i.dir, i.Images[scale-1].FileName))
+func (i *ImageSet) pngGenerator(scale, height, width int, svg string, c SVGConverter) func() error {
+	return func() error {
+		return c.Convert(scale, height, width, svg, filepath.Join(i.dir, i.Images[scale-1].FileName))
 	}
 }
 
