@@ -1,0 +1,24 @@
+{
+  "info": {
+    "author": "indigo",
+    "version": 1
+  },
+  "Properties": {},
+  "images": [
+    {
+      "filename": "home-1x.png",
+      "idiom": "universal",
+      "scale": "1x"
+    },
+    {
+      "filename": "home-2x.png",
+      "idiom": "universal",
+      "scale": "2x"
+    },
+    {
+      "filename": "home-3x.png",
+      "idiom": "universal",
+      "scale": "3x"
+    }
+  ]
+}

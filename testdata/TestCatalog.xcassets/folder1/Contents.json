@@ -1,0 +1,9 @@
+{
+  "info": {
+    "author": "indigo",
+    "version": 1
+  },
+  "properties": {
+    "provides-namespace": true
+  }
+}
