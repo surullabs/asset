@@ -87,10 +87,11 @@ type ResourceTags struct {
 }
 
 type ImageSet struct {
-	dir        string
-	Info       CatalogInfo `json:"info"`
-	Properties ResourceTags
-	Images     []Image `json:"images"`
+	dir           string
+	sanitizePaths bool
+	Info          CatalogInfo `json:"info"`
+	Properties    ResourceTags
+	Images        []Image `json:"images"`
 }
 
 func (i *ImageSet) Write() error {
@@ -128,10 +129,11 @@ type Image struct {
 }
 
 type container struct {
-	dir    string
-	name   string
-	g      map[string]*Group
-	images map[string]*ImageSet
+	dir           string
+	name          string
+	g             map[string]*Group
+	images        map[string]*ImageSet
+	sanitizePaths bool
 }
 
 func newContainer(name, dir string) *container {
@@ -231,12 +233,13 @@ func (c *container) AddSVG(path string, forceUpdate bool, converter SVGConverter
 	}
 
 	name := filepath.Base(path)
-	target := name[0 : len(name)-4]
+	target := sanitize(c.sanitizePaths, name[0:len(name)-4])
 
 	image := c.images[target]
 	if image == nil {
 		image = &ImageSet{
-			dir: filepath.Join(c.dir, target+".imageset"),
+			dir:           filepath.Join(c.dir, target+".imageset"),
+			sanitizePaths: c.sanitizePaths,
 		}
 		exists, err := readContents(image.dir, image)
 		if err != nil {
@@ -274,6 +277,7 @@ func (i *ImageSet) pngGenerator(scale int, height, width float32, svg, out strin
 }
 
 func (c *container) AddGroup(name string) (Container, error) {
+	name = sanitize(c.sanitizePaths, name)
 	existing := c.g[name]
 	if existing != nil {
 		return existing, nil
@@ -281,6 +285,7 @@ func (c *container) AddGroup(name string) (Container, error) {
 	group := &Group{
 		container: newContainer(name, filepath.Join(c.dir, name)),
 	}
+	group.sanitizePaths = c.sanitizePaths
 	exists, err := readContents(group.dir, group)
 	if err != nil {
 		return nil, err
@@ -308,7 +313,7 @@ func (c *container) write() error {
 	return nil
 }
 
-func NewCatalog(dir string) (*Catalog, error) {
+func NewCatalog(dir string, sanitizePaths bool) (*Catalog, error) {
 	fileName := filepath.Base(dir)
 	ext := filepath.Ext(fileName)
 	if ext != ".xcassets" {
@@ -322,6 +327,7 @@ func NewCatalog(dir string) (*Catalog, error) {
 		return nil, fmt.Errorf("%s: not a directory", dir)
 	}
 	c := &Catalog{container: newContainer(strings.TrimSuffix(fileName, ext), dir)}
+	c.sanitizePaths = sanitizePaths
 	if exists, err := readContents(dir, c); err != nil {
 		return nil, err
 	} else if !exists {
@@ -334,7 +340,10 @@ func (c *Catalog) readAppIconSet() error {
 	if c.appIcon != nil {
 		return nil
 	}
-	appIcon := &ImageSet{dir: filepath.Join(c.dir, "AppIcon.appiconset")}
+	appIcon := &ImageSet{
+		dir:           filepath.Join(c.dir, "AppIcon.appiconset"),
+		sanitizePaths: c.sanitizePaths,
+	}
 	if exists, err := readContents(appIcon.dir, appIcon); err != nil {
 		return err
 	} else if !exists {
@@ -355,7 +364,7 @@ func (c *Catalog) AddAppIconSVG(path string, force bool, converter SVGConverter)
 		return err
 	}
 	name := filepath.Base(path)
-	target := name[0 : len(name)-4]
+	target := sanitize(c.sanitizePaths, name[0:len(name)-4])
 	makeImage := func(idiom string, scale int, size float32) Image {
 		file := fmt.Sprintf("%s-%s-@%d-%d.png", target, idiom, scale, int(size))
 		sizeStr := strings.TrimSuffix(fmt.Sprintf("%.1f", size), ".0")
@@ -420,4 +429,11 @@ type Container interface {
 	AddGroup(name string) (Container, error)
 	AddSVG(file string, forceUpdate bool, c SVGConverter) error
 	Write() error
+}
+
+func sanitize(s bool, path string) string {
+	if !s {
+		return path
+	}
+	return strings.Replace(path, " ", "_", -1)
 }

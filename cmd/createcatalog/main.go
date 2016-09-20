@@ -23,8 +23,8 @@ func validate(out string) error {
 	return nil
 }
 
-func gen(out, appIcon string, force bool) error {
-	c, err := asset.NewCatalog(out)
+func gen(out, appIcon string, force, sanitize bool) error {
+	c, err := asset.NewCatalog(out, sanitize)
 	if err != nil {
 		return err
 	}
@@ -51,12 +51,13 @@ func gen(out, appIcon string, force bool) error {
 func main() {
 	var (
 		out, appIcon   string
-		force, verbose bool
+		force, verbose, sanitize bool
 	)
 	flag.StringVar(&out, "out", "", "Output directory for the asset catalog")
+	flag.StringVar(&appIcon, "appicon", "", "Path to the SVG to use as an app icon")
 	flag.BoolVar(&force, "force", false, "If true all svgs are updated")
 	flag.BoolVar(&verbose, "v", false, "If true verbose output is printed")
-	flag.StringVar(&appIcon, "appicon", "", "Path to the SVG to use as an app icon")
+	flag.BoolVar(&sanitize, "sanitize", false, "If true any spaces in paths are converted into _")
 	flag.Parse()
 
 	if err := validate(out); err != nil {
@@ -70,7 +71,7 @@ func main() {
 		asset.Log = func(args ...interface{}) { fmt.Println(args...) }
 	}
 
-	err := gen(out, appIcon, force)
+	err := gen(out, appIcon, force, sanitize)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
