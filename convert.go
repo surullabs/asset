@@ -68,7 +68,10 @@ var renderSVG = function(source, height, width, done) {
 		}
 		page.viewportSize = {width: width, height: height};
         page.clipRect = {top: 0, left: 0, width: width, height: height};
-		done({'status': status, 'content': page.renderBase64('PNG')});
+        var content = page.renderBase64('PNG');
+        page.stop();
+        page.close();
+		done({'status': status, 'content': content});
 	});
 };
 `
