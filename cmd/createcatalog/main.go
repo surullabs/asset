@@ -24,7 +24,7 @@ func validate(out string) error {
 }
 
 func gen(out, appIcon string, force, sanitize bool) error {
-	c, err := asset.NewCatalog(out, sanitize)
+	c, err := asset.NewCatalog(out)
 	if err != nil {
 		return err
 	}
@@ -37,11 +37,17 @@ func gen(out, appIcon string, force, sanitize bool) error {
 			fmt.Fprintln(os.Stderr, "WARNING: failed to stop phantomjs cleanly: %v", err)
 		}
 	}()
-	if err := c.AddSVGs(flag.Args()[0], force, converter); err != nil {
+	walker := &asset.SVGWalker{
+		Catalog:       c,
+		ForceUpdate:   force,
+		SanitizePaths: sanitize,
+		Converter:     converter,
+	}
+	if err := walker.Walk(flag.Args()[0]); err != nil {
 		return err
 	}
 	if appIcon != "" {
-		if err := c.AddAppIconSVG(appIcon, force, converter); err != nil {
+		if err := walker.AddAppIconSVG(appIcon); err != nil {
 			return err
 		}
 	}
@@ -50,7 +56,7 @@ func gen(out, appIcon string, force, sanitize bool) error {
 
 func main() {
 	var (
-		out, appIcon   string
+		out, appIcon             string
 		force, verbose, sanitize bool
 	)
 	flag.StringVar(&out, "out", "", "Output directory for the asset catalog")

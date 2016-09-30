@@ -11,7 +11,7 @@ func (s *SVGWalker) readAppIconSet() error {
 		return nil
 	}
 
-	appIcon, err := NewImageSet(filepath.Join(s.Dir, "AppIcon.appiconset"))
+	appIcon, err := NewImageSet(filepath.Join(s.Catalog.Dir, "AppIcon.appiconset"))
 	if err != nil {
 		return err
 	}

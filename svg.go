@@ -3,6 +3,7 @@ package asset
 import (
 	"fmt"
 	"os/exec"
+	"strconv"
 
 	"encoding/base64"
 	"html/template"
@@ -148,7 +149,6 @@ func (p *PhantomJSConverter) Convert(scale int, height, width float32, svgFile, 
 }
 
 type SVGWalker struct {
-	Dir           string
 	Converter     SVGConverter
 	Catalog       *Catalog
 	SanitizePaths bool
@@ -162,35 +162,45 @@ func (s *SVGWalker) sanitized(path string) string {
 	return strings.Replace(path, " ", "_", -1)
 }
 
-func (s *SVGWalker) Walk(path string, info os.FileInfo) error {
+func (s *SVGWalker) Walk(dir string) error {
+	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		return s.AddPath(dir, path, info)
+	})
+}
+
+func (s *SVGWalker) AddPath(dir, path string, info os.FileInfo) error {
 	if info.IsDir() || filepath.Ext(info.Name()) != ".svg" {
 		return nil
 	}
-	f, err := filepath.Rel(s.Dir, path)
+	f, err := filepath.Rel(dir, path)
 	if err != nil {
 		return err
 	}
-	return s.add(f)
+	return s.add(dir, f)
 }
 
-func (s *SVGWalker) add(file string) error {
+func (s *SVGWalker) add(dir, file string) error {
 	path, _ := filepath.Dir(file), filepath.Base(file)
-	var holder Container = s.Catalog
+	holder := s.Catalog.Container
 	for path != "." && path != "" {
 		var (
 			group string
 			err   error
 		)
 		path, group = filepath.Dir(path), filepath.Base(path)
-		holder, err = holder.AddGroup(s.sanitized(group))
+		g, err := holder.AddGroup(s.sanitized(group))
 		if err != nil {
 			return err
 		}
+		holder = g.Container
 	}
-	return s.addSVG(holder, filepath.Join(s.Dir, file))
+	return s.addSVG(holder, filepath.Join(dir, file))
 }
 
-func (s *SVGWalker) addSVG(c Container, path string) error {
+func (s *SVGWalker) addSVG(c *Container, path string) error {
 	if !strings.HasSuffix(path, ".svg") {
 		return fmt.Errorf("%s: not an svg file", path)
 	}
@@ -198,14 +208,14 @@ func (s *SVGWalker) addSVG(c Container, path string) error {
 	name := filepath.Base(path)
 	target := s.sanitized(name[0 : len(name)-4])
 
-	image := c.ImageSet(target)
+	image := c.Images[target]
 	if image == nil {
 		var err error
-		img := filepath.Join(c.Dir(), target+  ".imageset")
+		img := filepath.Join(c.Dir, target+".imageset")
 		if image, err = NewImageSet(img); err != nil {
 			return err
 		}
-		c.SetImageSet(target, image)
+		c.Images[target] = image
 	}
 	p, err := s.parseSVG(image, path, 3)
 	if err != nil || !p.update {
@@ -280,4 +290,37 @@ type parsedSVG struct {
 	update bool
 	height float32
 	width  float32
+}
+
+type svg struct {
+	Height string `xml:"height,attr"`
+	Width  string `xml:"width,attr"`
+}
+
+func (s svg) dim() (float32, float32, error) {
+	h, err := parseDim(s.Height)
+	if err != nil {
+		return 0, 0, err
+	}
+	w, err := parseDim(s.Width)
+	if err != nil {
+		return 0, 0, err
+	}
+	return h, w, nil
+}
+
+func parseDim(str string) (v float32, err error) {
+	defer func() {
+		if v == 0 {
+			v = 150
+		}
+	}()
+	switch {
+	case str == "":
+		return 0, nil
+	case strings.HasSuffix(str, "px"):
+		str = strings.TrimSuffix(str, "px")
+	}
+	val, err := strconv.ParseFloat(str, 32)
+	return float32(val), err
 }

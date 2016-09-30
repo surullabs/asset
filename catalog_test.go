@@ -141,8 +141,8 @@ func TestSVGWalker_Walk(t *testing.T) {
 	require.NoError(t, err)
 
 	mock := &converter{calls: fakeCallsFromTestData(tmpDir)}
-	walker := &SVGWalker{Dir: "testdata/data", Converter: mock, Catalog: catalog}
-	require.NoError(t, catalog.Walk("testdata/data", walker))
+	walker := &SVGWalker{Converter: mock, Catalog: catalog}
+	require.NoError(t, walker.Walk("testdata/data"))
 	require.NoError(t, catalog.Write())
 	require.Equal(t, len(mock.calls), mock.called)
 
@@ -156,14 +156,14 @@ func TestSVGWalker_Walk(t *testing.T) {
 
 	mock = &converter{calls: nil}
 	walker.Converter = mock
-	require.NoError(t, catalog.Walk("testdata/data", walker))
+	require.NoError(t, walker.Walk("testdata/data"))
 	require.NoError(t, catalog.Write())
 	require.Equal(t, 0, mock.called)
 
 	// Now force an update
 	mock = &converter{calls: fakeCallsFromTestData(tmpDir)}
 	walker.Converter, walker.ForceUpdate = mock, true
-	require.NoError(t, catalog.Walk("testdata/data", walker))
+	require.NoError(t, walker.Walk("testdata/data"))
 	require.NoError(t, catalog.Write())
 	require.Equal(t, len(mock.calls), mock.called)
 
