@@ -201,9 +201,11 @@ func (s *SVGWalker) addSVG(c Container, path string) error {
 	image := c.ImageSet(target)
 	if image == nil {
 		var err error
-		if image, err = c.NewImageSet(target); err != nil {
+		img := filepath.Join(c.Dir(), target+  ".imageset")
+		if image, err = NewImageSet(img); err != nil {
 			return err
 		}
+		c.SetImageSet(target, image)
 	}
 	p, err := s.parseSVG(image, path, 3)
 	if err != nil || !p.update {

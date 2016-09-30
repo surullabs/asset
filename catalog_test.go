@@ -130,7 +130,7 @@ func listAll(t *testing.T, dir string) []catalogFile {
 	return files
 }
 
-func TestCatalogWalkSVG(t *testing.T) {
+func TestSVGWalker_Walk(t *testing.T) {
 	tmpDir, err := ioutil.TempDir("", "catalog-test")
 	require.NoError(t, err)
 	defer os.RemoveAll(tmpDir)

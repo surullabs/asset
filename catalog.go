@@ -38,7 +38,7 @@ func writeContents(dir string, v interface{}) error {
 
 type Catalog struct {
 	*container
-	appIcon *ImageSet
+	AppIcon *ImageSet   `json:"-"`
 	Info    CatalogInfo `json:"info"`
 }
 
@@ -46,7 +46,7 @@ func (c *Catalog) Write() error {
 	if err := writeContents(c.dir, c); err != nil {
 		return err
 	}
-	if err := c.appIcon.Write(); err != nil {
+	if err := c.AppIcon.Write(); err != nil {
 		return err
 	}
 	return c.write()
@@ -88,10 +88,24 @@ type ResourceTags struct {
 }
 
 type ImageSet struct {
-	Dir           string `json:"-"`
-	Info          CatalogInfo `json:"info"`
-	Properties    ResourceTags
-	Images        []Image `json:"images"`
+	Dir        string      `json:"-"`
+	Info       CatalogInfo `json:"info"`
+	Properties ResourceTags
+	Images     []Image `json:"images"`
+}
+
+func NewImageSet(path string) (*ImageSet, error) {
+	image := &ImageSet{
+		Dir: filepath.Join(path),
+	}
+	exists, err := readContents(image.Dir, image)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		image.Info = defaultCatalogInfo
+	}
+	return image, nil
 }
 
 func (i *ImageSet) Write() error {
@@ -130,28 +144,15 @@ type Image struct {
 }
 
 type container struct {
-	dir           string
-	name          string
-	g             map[string]*Group
-	images        map[string]*ImageSet
+	dir    string
+	name   string
+	g      map[string]*Group
+	images map[string]*ImageSet
 }
 
-func (c *container) ImageSet(name string) *ImageSet { return c.images[name] }
-
-func (c *container) NewImageSet(name string) (*ImageSet, error) {
-	image := &ImageSet{
-		Dir:           filepath.Join(c.dir, name+".imageset"),
-	}
-	exists, err := readContents(image.Dir, image)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		image.Info = defaultCatalogInfo
-	}
-	c.images[name] = image
-	return image, nil
-}
+func (c *container) Dir() string                          { return c.dir }
+func (c *container) SetImageSet(name string, i *ImageSet) { c.images[name] = i }
+func (c *container) ImageSet(name string) *ImageSet       { return c.images[name] }
 
 func newContainer(name, dir string) *container {
 	return &container{
@@ -252,64 +253,6 @@ func NewCatalog(dir string) (*Catalog, error) {
 	return c, nil
 }
 
-func (c *Catalog) readAppIconSet() error {
-	if c.appIcon != nil {
-		return nil
-	}
-	appIcon := &ImageSet{
-		Dir:           filepath.Join(c.dir, "AppIcon.appiconset"),
-	}
-	if exists, err := readContents(appIcon.Dir, appIcon); err != nil {
-		return err
-	} else if !exists {
-		appIcon.Info = defaultCatalogInfo
-	}
-	c.appIcon = appIcon
-	return nil
-}
-
-//func (c *Catalog) AddAppIconSVG(path string, force bool, converter SVGConverter) error {
-//	if !strings.HasSuffix(path, ".svg") {
-//		return fmt.Errorf("%s: not an svg file", path)
-//	}
-//	if err := c.readAppIconSet(); err != nil {
-//		return err
-//	}
-//	if p, err := c.appIcon.parseSVG(path, 13, force); err != nil || !p.update {
-//		return err
-//	}
-//	name := filepath.Base(path)
-//	target := sanitize(c.sanitizePaths, name[0:len(name)-4])
-//	makeImage := func(idiom string, scale int, size float32) Image {
-//		file := fmt.Sprintf("%s-%s-@%d-%d.png", target, idiom, scale, int(size))
-//		sizeStr := strings.TrimSuffix(fmt.Sprintf("%.1f", size), ".0")
-//		return Image{
-//			Scale:     fmt.Sprintf("%dx", scale),
-//			Size:      fmt.Sprintf("%sx%s", sizeStr, sizeStr),
-//			FileName:  file,
-//			Idiom:     idiom,
-//			generator: c.appIcon.pngGenerator(scale, size, size, path, file, converter),
-//		}
-//	}
-//	c.appIcon.Images = []Image{
-//		makeImage("iphone", 2, 29),
-//		makeImage("iphone", 3, 29),
-//		makeImage("iphone", 2, 40),
-//		makeImage("iphone", 3, 40),
-//		makeImage("iphone", 2, 60),
-//		makeImage("iphone", 3, 60),
-//		makeImage("ipad", 1, 29),
-//		makeImage("ipad", 2, 29),
-//		makeImage("ipad", 1, 40),
-//		makeImage("ipad", 2, 40),
-//		makeImage("ipad", 1, 76),
-//		makeImage("ipad", 2, 76),
-//		makeImage("ipad", 2, 83.5),
-//	}
-//
-//	return nil
-//}
-
 type Walker interface {
 	Walk(path string, info os.FileInfo) error
 }
@@ -324,15 +267,9 @@ func (c *Catalog) Walk(dir string, walker Walker) error {
 }
 
 type Container interface {
+	Dir() string
 	AddGroup(name string) (Container, error)
 	ImageSet(name string) *ImageSet
-	NewImageSet(name string) (*ImageSet, error)
+	SetImageSet(name string, i *ImageSet)
 	Write() error
-}
-
-func sanitize(s bool, path string) string {
-	if !s {
-		return path
-	}
-	return strings.Replace(path, " ", "_", -1)
 }
