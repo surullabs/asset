@@ -89,7 +89,6 @@ type ResourceTags struct {
 
 type ImageSet struct {
 	Dir           string `json:"-"`
-	sanitizePaths bool
 	Info          CatalogInfo `json:"info"`
 	Properties    ResourceTags
 	Images        []Image `json:"images"`
@@ -135,7 +134,6 @@ type container struct {
 	name          string
 	g             map[string]*Group
 	images        map[string]*ImageSet
-	sanitizePaths bool
 }
 
 func (c *container) ImageSet(name string) *ImageSet { return c.images[name] }
@@ -143,7 +141,6 @@ func (c *container) ImageSet(name string) *ImageSet { return c.images[name] }
 func (c *container) NewImageSet(name string) (*ImageSet, error) {
 	image := &ImageSet{
 		Dir:           filepath.Join(c.dir, name+".imageset"),
-		sanitizePaths: c.sanitizePaths,
 	}
 	exists, err := readContents(image.Dir, image)
 	if err != nil {
@@ -199,7 +196,6 @@ func parseDim(str string) (v float32, err error) {
 }
 
 func (c *container) AddGroup(name string) (Container, error) {
-	name = sanitize(c.sanitizePaths, name)
 	existing := c.g[name]
 	if existing != nil {
 		return existing, nil
@@ -207,7 +203,6 @@ func (c *container) AddGroup(name string) (Container, error) {
 	group := &Group{
 		container: newContainer(name, filepath.Join(c.dir, name)),
 	}
-	group.sanitizePaths = c.sanitizePaths
 	exists, err := readContents(group.dir, group)
 	if err != nil {
 		return nil, err
@@ -235,7 +230,7 @@ func (c *container) write() error {
 	return nil
 }
 
-func NewCatalog(dir string, sanitizePaths bool) (*Catalog, error) {
+func NewCatalog(dir string) (*Catalog, error) {
 	fileName := filepath.Base(dir)
 	ext := filepath.Ext(fileName)
 	if ext != ".xcassets" {
@@ -249,7 +244,6 @@ func NewCatalog(dir string, sanitizePaths bool) (*Catalog, error) {
 		return nil, fmt.Errorf("%s: not a directory", dir)
 	}
 	c := &Catalog{container: newContainer(strings.TrimSuffix(fileName, ext), dir)}
-	c.sanitizePaths = sanitizePaths
 	if exists, err := readContents(dir, c); err != nil {
 		return nil, err
 	} else if !exists {
@@ -264,7 +258,6 @@ func (c *Catalog) readAppIconSet() error {
 	}
 	appIcon := &ImageSet{
 		Dir:           filepath.Join(c.dir, "AppIcon.appiconset"),
-		sanitizePaths: c.sanitizePaths,
 	}
 	if exists, err := readContents(appIcon.Dir, appIcon); err != nil {
 		return err

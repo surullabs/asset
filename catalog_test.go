@@ -137,7 +137,7 @@ func TestCatalogWalkSVG(t *testing.T) {
 
 	catalogDir := filepath.Join(tmpDir, "TestCatalog.xcassets")
 	require.NoError(t, os.MkdirAll(catalogDir, 0700))
-	catalog, err := NewCatalog(catalogDir, false)
+	catalog, err := NewCatalog(catalogDir)
 	require.NoError(t, err)
 
 	mock := &converter{calls: fakeCallsFromTestData(tmpDir)}
