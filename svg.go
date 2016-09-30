@@ -11,9 +11,14 @@ import (
 
 	"os"
 
+	"bytes"
+
+	"strings"
+
+	"encoding/xml"
+
 	"github.com/pkg/errors"
 	"github.com/urturn/go-phantomjs"
-	"bytes"
 )
 
 type SVGConverter interface {
@@ -30,8 +35,8 @@ func (InkScapeConverter) Convert(scale int, height, width float32, svgFile, pngF
 	}
 	cmd := exec.Command("inkscape",
 		"--without-gui",
-		"--export-height", fmt.Sprintf("%f", int(float32(scale) *height)),
-		"--export-width", fmt.Sprintf("%f", int(float32(scale) * width)),
+		"--export-height", fmt.Sprintf("%f", int(float32(scale)*height)),
+		"--export-width", fmt.Sprintf("%f", int(float32(scale)*width)),
 		"--export-png", pngFile,
 		svgFile)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -140,4 +145,137 @@ func (p *PhantomJSConverter) Convert(scale int, height, width float32, svgFile, 
 		return errors.Wrap(err, "failed to write")
 	}
 	return nil
+}
+
+type SVGWalker struct {
+	Dir           string
+	Converter     SVGConverter
+	Catalog       *Catalog
+	SanitizePaths bool
+	ForceUpdate   bool
+}
+
+func (s *SVGWalker) sanitized(path string) string {
+	if !s.SanitizePaths {
+		return path
+	}
+	return strings.Replace(path, " ", "_", -1)
+}
+
+func (s *SVGWalker) Walk(path string, info os.FileInfo) error {
+	if info.IsDir() || filepath.Ext(info.Name()) != ".svg" {
+		return nil
+	}
+	f, err := filepath.Rel(s.Dir, path)
+	if err != nil {
+		return err
+	}
+	return s.add(f)
+}
+
+func (s *SVGWalker) add(file string) error {
+	path, _ := filepath.Dir(file), filepath.Base(file)
+	var holder Container = s.Catalog
+	for path != "." && path != "" {
+		var (
+			group string
+			err   error
+		)
+		path, group = filepath.Dir(path), filepath.Base(path)
+		holder, err = holder.AddGroup(s.sanitized(group))
+		if err != nil {
+			return err
+		}
+	}
+	return s.addSVG(holder, filepath.Join(s.Dir, file))
+}
+
+func (s *SVGWalker) addSVG(c Container, path string) error {
+	if !strings.HasSuffix(path, ".svg") {
+		return fmt.Errorf("%s: not an svg file", path)
+	}
+
+	name := filepath.Base(path)
+	target := s.sanitized(name[0 : len(name)-4])
+
+	image := c.ImageSet(target)
+	if image == nil {
+		var err error
+		if image, err = c.NewImageSet(target); err != nil {
+			return err
+		}
+	}
+	p, err := s.parseSVG(image, path, 3)
+	if err != nil || !p.update {
+		return err
+	}
+
+	image.Images = make([]Image, 3)
+	for i := 1; i < 4; i++ {
+		file := fmt.Sprintf("%s-%dx.png", target, i)
+		image.Images[i-1] = Image{
+			Scale:     fmt.Sprintf("%dx", i),
+			FileName:  file,
+			Idiom:     "universal",
+			generator: s.pngGenerator(image, i, p.height, p.width, path, file),
+		}
+	}
+	return nil
+}
+
+func (s *SVGWalker) pngGenerator(i *ImageSet, scale int, height, width float32, svg, out string) func() error {
+	return func() error {
+		file := filepath.Join(i.Dir, out)
+		Log("Generating", file)
+		return s.Converter.Convert(scale, height, width, svg, file)
+	}
+}
+
+func (s *SVGWalker) parseSVG(i *ImageSet, path string, expected int) (parsedSVG, error) {
+	update, err := s.needsUpdate(i, path, expected)
+	if err != nil || !update {
+		return parsedSVG{}, err
+	}
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return parsedSVG{}, err
+	}
+	var v svg
+	if err := xml.Unmarshal(data, &v); err != nil {
+		return parsedSVG{}, errors.Wrapf(err, "%s: failed to parse svg", path)
+	}
+	h, w, err := v.dim()
+	if err != nil {
+		return parsedSVG{}, errors.Wrapf(err, "%s: failed to parse dim", path)
+	}
+	return parsedSVG{update, h, w}, nil
+}
+
+func (s *SVGWalker) needsUpdate(i *ImageSet, svg string, expected int) (bool, error) {
+	if s.ForceUpdate {
+		return true, nil
+	}
+	if len(i.Images) != expected {
+		return true, nil
+	}
+	svgStat, err := os.Stat(svg)
+	if err != nil {
+		return false, err
+	}
+	for _, image := range i.Images {
+		stat, err := os.Stat(filepath.Join(i.Dir, image.FileName))
+		if err != nil {
+			return true, nil
+		}
+		if stat.ModTime().Before(svgStat.ModTime()) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+type parsedSVG struct {
+	update bool
+	height float32
+	width  float32
 }

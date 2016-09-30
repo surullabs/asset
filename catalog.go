@@ -2,13 +2,14 @@ package asset
 
 import (
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/pkg/errors"
 )
 
 var Log = func(args ...interface{}) {}
@@ -19,10 +20,10 @@ func readContents(dir string, v interface{}) (bool, error) {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
-		return false, err
+		return false, errors.Wrap(err, "failed to open Contents.json")
 	}
 	if err := json.NewDecoder(contents).Decode(v); err != nil {
-		return false, err
+		return false, errors.Wrapf(err, "failed to decode %s/Contents.json", dir)
 	}
 	return true, nil
 }
@@ -87,7 +88,7 @@ type ResourceTags struct {
 }
 
 type ImageSet struct {
-	dir           string
+	Dir           string `json:"-"`
 	sanitizePaths bool
 	Info          CatalogInfo `json:"info"`
 	Properties    ResourceTags
@@ -98,18 +99,19 @@ func (i *ImageSet) Write() error {
 	if i == nil {
 		return nil
 	}
-	if err := os.MkdirAll(i.dir, 0700); err != nil {
+	if err := os.MkdirAll(i.Dir, 0700); err != nil {
 		return err
 	}
-	for _, image := range i.Images {
+	for j, image := range i.Images {
 		if image.generator == nil {
 			continue
 		}
+		i.Images[j].generator = nil
 		if err := image.generator(); err != nil {
 			return err
 		}
 	}
-	return writeContents(i.dir, i)
+	return writeContents(i.Dir, i)
 }
 
 type Image struct {
@@ -134,6 +136,24 @@ type container struct {
 	g             map[string]*Group
 	images        map[string]*ImageSet
 	sanitizePaths bool
+}
+
+func (c *container) ImageSet(name string) *ImageSet { return c.images[name] }
+
+func (c *container) NewImageSet(name string) (*ImageSet, error) {
+	image := &ImageSet{
+		Dir:           filepath.Join(c.dir, name+".imageset"),
+		sanitizePaths: c.sanitizePaths,
+	}
+	exists, err := readContents(image.Dir, image)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		image.Info = defaultCatalogInfo
+	}
+	c.images[name] = image
+	return image, nil
 }
 
 func newContainer(name, dir string) *container {
@@ -176,104 +196,6 @@ func parseDim(str string) (v float32, err error) {
 	}
 	val, err := strconv.ParseFloat(str, 32)
 	return float32(val), err
-}
-
-func (i *ImageSet) needsUpdate(svg string, expected int, force bool) (bool, error) {
-	if force {
-		return true, nil
-	}
-	if len(i.Images) != expected {
-		return true, nil
-	}
-	svgStat, err := os.Stat(svg)
-	if err != nil {
-		return false, err
-	}
-	for _, image := range i.Images {
-		stat, err := os.Stat(filepath.Join(i.dir, image.FileName))
-		if err != nil {
-			return true, nil
-		}
-		if stat.ModTime().Before(svgStat.ModTime()) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func (i *ImageSet) parseSVG(path string, expected int, forceUpdate bool) (parsedSVG, error) {
-	update, err := i.needsUpdate(path, expected, forceUpdate)
-	if err != nil {
-		return parsedSVG{}, err
-	}
-	bytes, err := ioutil.ReadFile(path)
-	if err != nil {
-		return parsedSVG{}, err
-	}
-	var s svg
-	if err := xml.Unmarshal(bytes, &s); err != nil {
-		return parsedSVG{}, fmt.Errorf("%s: failed to parse svg:%v", path, err)
-	}
-	h, w, err := s.dim()
-	if err != nil {
-		return parsedSVG{}, fmt.Errorf("%s: failed to parse dim:%v", path, err)
-	}
-	return parsedSVG{update, h, w}, nil
-}
-
-type parsedSVG struct {
-	update bool
-	height float32
-	width  float32
-}
-
-func (c *container) AddSVG(path string, forceUpdate bool, converter SVGConverter) error {
-	if !strings.HasSuffix(path, ".svg") {
-		return fmt.Errorf("%s: not an svg file", path)
-	}
-
-	name := filepath.Base(path)
-	target := sanitize(c.sanitizePaths, name[0:len(name)-4])
-
-	image := c.images[target]
-	if image == nil {
-		image = &ImageSet{
-			dir:           filepath.Join(c.dir, target+".imageset"),
-			sanitizePaths: c.sanitizePaths,
-		}
-		exists, err := readContents(image.dir, image)
-		if err != nil {
-			return err
-		}
-		if !exists {
-			image.Info = defaultCatalogInfo
-		}
-		c.images[target] = image
-	}
-	p, err := image.parseSVG(path, 3, forceUpdate)
-	if err != nil || !p.update {
-		return err
-	}
-
-	image.Images = make([]Image, 3)
-	for i := 1; i < 4; i++ {
-		file := fmt.Sprintf("%s-%dx.png", target, i)
-		image.Images[i-1] = Image{
-			Scale:     fmt.Sprintf("%dx", i),
-			FileName:  file,
-			Idiom:     "universal",
-			generator: image.pngGenerator(i, p.height, p.width, path, file, converter),
-		}
-	}
-	return nil
-}
-
-func (i *ImageSet) pngGenerator(scale int, height, width float32, svg, out string, c SVGConverter) func() error {
-	return func() error {
-		file := filepath.Join(i.dir, out)
-		Log("Generating", file)
-		return c.Convert(scale, height, width, svg, file)
-	}
 }
 
 func (c *container) AddGroup(name string) (Container, error) {
@@ -341,10 +263,10 @@ func (c *Catalog) readAppIconSet() error {
 		return nil
 	}
 	appIcon := &ImageSet{
-		dir:           filepath.Join(c.dir, "AppIcon.appiconset"),
+		Dir:           filepath.Join(c.dir, "AppIcon.appiconset"),
 		sanitizePaths: c.sanitizePaths,
 	}
-	if exists, err := readContents(appIcon.dir, appIcon); err != nil {
+	if exists, err := readContents(appIcon.Dir, appIcon); err != nil {
 		return err
 	} else if !exists {
 		appIcon.Info = defaultCatalogInfo
@@ -353,81 +275,65 @@ func (c *Catalog) readAppIconSet() error {
 	return nil
 }
 
-func (c *Catalog) AddAppIconSVG(path string, force bool, converter SVGConverter) error {
-	if !strings.HasSuffix(path, ".svg") {
-		return fmt.Errorf("%s: not an svg file", path)
-	}
-	if err := c.readAppIconSet(); err != nil {
-		return err
-	}
-	if p, err := c.appIcon.parseSVG(path, 13, force); err != nil || !p.update {
-		return err
-	}
-	name := filepath.Base(path)
-	target := sanitize(c.sanitizePaths, name[0:len(name)-4])
-	makeImage := func(idiom string, scale int, size float32) Image {
-		file := fmt.Sprintf("%s-%s-@%d-%d.png", target, idiom, scale, int(size))
-		sizeStr := strings.TrimSuffix(fmt.Sprintf("%.1f", size), ".0")
-		return Image{
-			Scale:     fmt.Sprintf("%dx", scale),
-			Size:      fmt.Sprintf("%sx%s", sizeStr, sizeStr),
-			FileName:  file,
-			Idiom:     idiom,
-			generator: c.appIcon.pngGenerator(scale, size, size, path, file, converter),
-		}
-	}
-	c.appIcon.Images = []Image{
-		makeImage("iphone", 2, 29),
-		makeImage("iphone", 3, 29),
-		makeImage("iphone", 2, 40),
-		makeImage("iphone", 3, 40),
-		makeImage("iphone", 2, 60),
-		makeImage("iphone", 3, 60),
-		makeImage("ipad", 1, 29),
-		makeImage("ipad", 2, 29),
-		makeImage("ipad", 1, 40),
-		makeImage("ipad", 2, 40),
-		makeImage("ipad", 1, 76),
-		makeImage("ipad", 2, 76),
-		makeImage("ipad", 2, 83.5),
-	}
+//func (c *Catalog) AddAppIconSVG(path string, force bool, converter SVGConverter) error {
+//	if !strings.HasSuffix(path, ".svg") {
+//		return fmt.Errorf("%s: not an svg file", path)
+//	}
+//	if err := c.readAppIconSet(); err != nil {
+//		return err
+//	}
+//	if p, err := c.appIcon.parseSVG(path, 13, force); err != nil || !p.update {
+//		return err
+//	}
+//	name := filepath.Base(path)
+//	target := sanitize(c.sanitizePaths, name[0:len(name)-4])
+//	makeImage := func(idiom string, scale int, size float32) Image {
+//		file := fmt.Sprintf("%s-%s-@%d-%d.png", target, idiom, scale, int(size))
+//		sizeStr := strings.TrimSuffix(fmt.Sprintf("%.1f", size), ".0")
+//		return Image{
+//			Scale:     fmt.Sprintf("%dx", scale),
+//			Size:      fmt.Sprintf("%sx%s", sizeStr, sizeStr),
+//			FileName:  file,
+//			Idiom:     idiom,
+//			generator: c.appIcon.pngGenerator(scale, size, size, path, file, converter),
+//		}
+//	}
+//	c.appIcon.Images = []Image{
+//		makeImage("iphone", 2, 29),
+//		makeImage("iphone", 3, 29),
+//		makeImage("iphone", 2, 40),
+//		makeImage("iphone", 3, 40),
+//		makeImage("iphone", 2, 60),
+//		makeImage("iphone", 3, 60),
+//		makeImage("ipad", 1, 29),
+//		makeImage("ipad", 2, 29),
+//		makeImage("ipad", 1, 40),
+//		makeImage("ipad", 2, 40),
+//		makeImage("ipad", 1, 76),
+//		makeImage("ipad", 2, 76),
+//		makeImage("ipad", 2, 83.5),
+//	}
+//
+//	return nil
+//}
 
-	return nil
+type Walker interface {
+	Walk(path string, info os.FileInfo) error
 }
 
-func (c *Catalog) AddSVGs(dir string, forceUpdate bool, converter SVGConverter) error {
+func (c *Catalog) Walk(dir string, walker Walker) error {
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if info.IsDir() || filepath.Ext(info.Name()) != ".svg" {
-			return nil
-		}
-		f, err := filepath.Rel(dir, path)
 		if err != nil {
 			return err
 		}
-		return c.addSVG(dir, f, forceUpdate, converter)
+		return walker.Walk(path, info)
 	})
-}
-
-func (c *Catalog) addSVG(dir, file string, forceUpdate bool, converter SVGConverter) error {
-	path, _ := filepath.Dir(file), filepath.Base(file)
-	var holder Container = c
-	for path != "." && path != "" {
-		var (
-			group string
-			err   error
-		)
-		path, group = filepath.Dir(path), filepath.Base(path)
-		holder, err = holder.AddGroup(group)
-		if err != nil {
-			return err
-		}
-	}
-	return holder.AddSVG(filepath.Join(dir, file), forceUpdate, converter)
 }
 
 type Container interface {
 	AddGroup(name string) (Container, error)
-	AddSVG(file string, forceUpdate bool, c SVGConverter) error
+	ImageSet(name string) *ImageSet
+	NewImageSet(name string) (*ImageSet, error)
 	Write() error
 }
 

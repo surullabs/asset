@@ -12,6 +12,7 @@ import (
 	"fmt"
 
 	"github.com/JamesClonk/vultr/Godeps/_workspace/src/github.com/stretchr/testify/assert"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -70,7 +71,7 @@ func (c *converter) Convert(scale int, height, width float32, svg, png string) e
 		}
 	}
 	if idx == -1 {
-		return fmt.Errorf("no matching calls found for %+v", actual)
+		return errors.Errorf("no matching calls found for %+v", actual)
 	}
 	call := c.calls[idx]
 	b, err := ioutil.ReadFile(call.src)
@@ -103,42 +104,6 @@ func fakeCallsFromTestData(tmpDir string) []fakeConvertCall {
 	}
 }
 
-func TestCatalog(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "catalog-test")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpDir)
-
-	catalogDir := filepath.Join(tmpDir, "TestCatalog.xcassets")
-	require.NoError(t, os.MkdirAll(catalogDir, 0700))
-	catalog, err := NewCatalog(catalogDir, false)
-	require.NoError(t, err)
-
-	mock := &converter{calls: fakeCallsFromTestData(tmpDir)}
-	require.NoError(t, catalog.AddSVGs("testdata/data", false, mock))
-	require.NoError(t, catalog.Write())
-	require.Equal(t, len(mock.calls), mock.called)
-
-	golden := listAll(t, "testdata/TestCatalog.xcassets")
-	actual := listAll(t, catalogDir)
-	require.Len(t, actual, len(golden), "expected ", len(golden), " files, got ", len(actual))
-	for i, g := range golden {
-		require.Equal(t, g.name, actual[i].name, "expected ", g.name, ", got ", actual[i].name)
-		require.Equal(t, g.contents, actual[i].contents, "contents of ", g.name, " not equal")
-	}
-
-	mock = &converter{calls: nil}
-	require.NoError(t, catalog.AddSVGs("testdata/data", false, mock))
-	require.NoError(t, catalog.Write())
-	require.Equal(t, 0, mock.called)
-
-	// Now force an update
-	mock = &converter{calls: fakeCallsFromTestData(tmpDir)}
-	require.NoError(t, catalog.AddSVGs("testdata/data", true, mock))
-	require.NoError(t, catalog.Write())
-	require.Equal(t, len(mock.calls), mock.called)
-
-}
-
 type catalogFile struct {
 	name     string
 	contents []byte
@@ -163,4 +128,43 @@ func listAll(t *testing.T, dir string) []catalogFile {
 		return nil
 	}))
 	return files
+}
+
+func TestCatalogWalkSVG(t *testing.T) {
+	tmpDir, err := ioutil.TempDir("", "catalog-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	catalogDir := filepath.Join(tmpDir, "TestCatalog.xcassets")
+	require.NoError(t, os.MkdirAll(catalogDir, 0700))
+	catalog, err := NewCatalog(catalogDir, false)
+	require.NoError(t, err)
+
+	mock := &converter{calls: fakeCallsFromTestData(tmpDir)}
+	walker := &SVGWalker{Dir: "testdata/data", Converter: mock, Catalog: catalog}
+	require.NoError(t, catalog.Walk("testdata/data", walker))
+	require.NoError(t, catalog.Write())
+	require.Equal(t, len(mock.calls), mock.called)
+
+	golden := listAll(t, "testdata/TestCatalog.xcassets")
+	actual := listAll(t, catalogDir)
+	require.Len(t, actual, len(golden), "expected ", len(golden), " files, got ", len(actual))
+	for i, g := range golden {
+		require.Equal(t, g.name, actual[i].name, "expected ", g.name, ", got ", actual[i].name)
+		require.Equal(t, g.contents, actual[i].contents, "contents of ", g.name, " not equal")
+	}
+
+	mock = &converter{calls: nil}
+	walker.Converter = mock
+	require.NoError(t, catalog.Walk("testdata/data", walker))
+	require.NoError(t, catalog.Write())
+	require.Equal(t, 0, mock.called)
+
+	// Now force an update
+	mock = &converter{calls: fakeCallsFromTestData(tmpDir)}
+	walker.Converter, walker.ForceUpdate = mock, true
+	require.NoError(t, catalog.Walk("testdata/data", walker))
+	require.NoError(t, catalog.Write())
+	require.Equal(t, len(mock.calls), mock.called)
+
 }
