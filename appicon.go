@@ -43,12 +43,16 @@ func (s *SVGWalker) AddAppIconSVG(path string) error {
 		}
 	}
 	s.Catalog.AppIcon.Images = []Image{
+		makeImage("iphone", 2, 20),
+		makeImage("iphone", 3, 20),
 		makeImage("iphone", 2, 29),
 		makeImage("iphone", 3, 29),
 		makeImage("iphone", 2, 40),
 		makeImage("iphone", 3, 40),
 		makeImage("iphone", 2, 60),
 		makeImage("iphone", 3, 60),
+		makeImage("ipad", 1, 20),
+		makeImage("ipad", 2, 20),
 		makeImage("ipad", 1, 29),
 		makeImage("ipad", 2, 29),
 		makeImage("ipad", 1, 40),
